@@ -1,0 +1,62 @@
+name: RDP Setup
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secure-rdp:
+    runs-on: windows-latest
+    # Set a generous timeout (e.g., 6 hours)
+    timeout-minutes: 360
+
+    steps:
+      - name: Configure Core RDP Settings and Firewall
+        run: |
+          # 1. Enable Remote Desktop and disable Network Level Authentication (If needed)
+          Set-ItemProperty -Path HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp\ -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp\ -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp\ -Name "SecurityLayer" -Value 0 -Force
+          
+          # 2. Remove any existing rule with the same name to avoid duplication
+          netsh advfirewall firewall delete rule name="RDP-Tclallocate" | Out-Null # Suppress error if rule doesn't exist
+
+          # 3. Allow incoming connection on port 3389
+          netsh advfirewall firewall add rule name="RDP-Tclallocate" dir=in action=allow protocol=TCP localport=3389
+
+          # 4. (Optional) Restart the Remote Desktop service to ensure changes take effect
+          Restart-Service -Name TermService -Force
+          
+      - name: Create RDP User with Secure Password
+        id: createuser
+        run: |
+          Add-Type -AssemblyName System.Security
+          $charSet = @(
+              [char[]]([int][char]'A'..[int][char]'Z') # Upper (A-Z)
+              [char[]]([int][char]'a'..[int][char]'z') # Lower (a-z)
+              [char[]]([int][char]'0'..[int][char]'9') # Number (0-9)
+              [char[]]([int][char]'!'..[int][char]'/' + [int][char](':'..[int][char]'@') + [int][char]'['..[int][char]'`' + [int][char]'{'..[int][char]'~')) # Special characters
+          )
+          
+          # Generate a 16-character random password
+          $Password = -join (Get-Random -InputObject $charSet -Count 16)
+          
+          # Define username
+          $User = "rdpuser" 
+          
+          # Create the user and set the password
+          net user $User $Password /add
+          net localgroup "Remote Desktop Users" $User /add
+          
+          echo "User '$User' created."
+          
+          # ⚠ SECURITY WARNING: Outputting the password here is insecure.
+          # Use GitHub Secrets for actual RDP setup. For display, we mask it.
+          echo "::notice title=RDP Credentials::"
+          echo "Username: $User"
+          echo "Password: $Password"
+          
+          # Keep the VM running
+          echo "VM is ready. It will stay active for $env:TIMEOUT_MINUTES minutes."
+          Start-Sleep -Seconds ($env:TIMEOUT_MINUTES * 60)
+        env:
+          TIMEOUT_MINUTES: 360 # Must match the job timeout-minutes
