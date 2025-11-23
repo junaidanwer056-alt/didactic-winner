@@ -1,0 +1,50 @@
+name: Setup RDP Access
+
+on:
+  # Allows you to manually trigger the workflow from the GitHub Actions UI
+  workflow_dispatch:
+
+jobs:
+  rdp_session:
+    # Run on a Windows virtual machine
+    runs-on: windows-latest
+    
+    # Set a maximum timeout (e.g., 6 hours)
+    timeout-minutes: 360
+
+    steps:
+      - name: 🔒 Create Secure RDP User and Set Password
+        run: |
+          # 1. Define the RDP username (You can change 'rdpuser')
+          $RDP_USER = "rdpuser"
+          net user /add $RDP_USER
+          
+          # 2. Add the user to the 'Remote Desktop Users' group
+          net localgroup "Remote Desktop Users" $RDP_USER /add
+          
+          # 3. Set the password using a GitHub Secret (safest practice)
+          # You MUST create a Secret named RDP_PASSWORD in your repo settings.
+          $PASSWORD = "${{ secrets.RDP_PASSWORD }}"
+          net user $RDP_USER $PASSWORD
+          
+          echo "✅ RDP user '$RDP_USER' created and password set."
+          
+      - name: ⚙ Configure RDP Settings and Firewall
+        run: |
+          # 1. Enable Remote Desktop connections
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
+          
+          # 2. Ensure the firewall rule for incoming RDP traffic on port 3389 is enabled
+          netsh advfirewall firewall set rule group="Remote Desktop" new enable=yes
+          
+          # 3. Disable Network Level Authentication (NLA) for easier connection
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "UserAuthentication" -Value 0
+          
+          echo "✅ RDP configuration complete."
+          
+      - name: ⏳ Keep VM Active (Essential Step)
+        # This step keeps the VM running until the timeout or manual cancellation.
+        run: |
+          echo "RDP Session is ready. VM will stay active for 360 minutes unless manually stopped."
+          # This command idles PowerShell for 6 hours (360 minutes * 60 seconds = 21600 seconds)
+          Start-Sleep -Seconds 21600
